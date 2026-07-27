@@ -12,9 +12,12 @@
  */
 
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { AutocompleteItem } from "@earendil-works/pi-tui";
 
 const MAX_MODELS = 6;
 const CONCURRENCY = 4;
@@ -141,14 +144,57 @@ async function mapWithConcurrencyLimit<TIn, TOut>(
 	return results;
 }
 
+/**
+ * Cached "provider/id" strings for models you've actually enabled, read directly from
+ * settings.json rather than the full model-registry catalog. The registry's
+ * hasConfiguredAuth() is unreliable behind a shared gateway (e.g. litellm): it can report a
+ * provider as "authed" even when the specific downstream model has no real credentials, which
+ * surfaces as a failure only once prompt_ab actually tries to call it. Reading enabledModels
+ * matches exactly what Ctrl+P cycling offers, so anything listed here is known-good.
+ */
+let knownModels: string[] = [];
+
+function readEnabledModels(): string[] {
+	try {
+		const settingsPath = join(getAgentDir(), "settings.json");
+		const settings = JSON.parse(readFileSync(settingsPath, "utf-8")) as { enabledModels?: string[] };
+		return settings.enabledModels ?? [];
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Resolve a user-typed model string against the enabled-models list: exact match first, then a
+ * substring match (case-insensitive), so "flash" or "deepseek" work without memorizing the full
+ * "azure_ai/deepseek-v4-flash" form. Passes through unresolved input unchanged, so an explicit
+ * provider/id string for a model outside the enabled list still works.
+ */
+function resolveModel(input: string): string {
+	const needle = input.trim().toLowerCase();
+	if (!needle) return input;
+	if (knownModels.some((m) => m.toLowerCase() === needle)) return input;
+	const partial = knownModels.filter((m) => m.toLowerCase().includes(needle));
+	if (partial.length === 1) return partial[0];
+	return input;
+}
+
 export default function (pi: ExtensionAPI) {
+	pi.on("session_start", async () => {
+		knownModels = readEnabledModels();
+	});
+	pi.on("session_tree", async () => {
+		knownModels = readEnabledModels();
+	});
+
 	pi.registerTool({
 		name: "prompt_ab",
 		label: "Prompt A/B",
 		description:
 			"Run the same prompt across multiple models in isolated, tool-less subprocesses, and compare outputs, " +
 			"cost, and latency side by side. Use for picking a model, not for tasks that need file/bash access. " +
-			`Max ${MAX_MODELS} models per call.`,
+			"Model names are resolved fuzzily (substring match against provider/id), so a short unambiguous " +
+			`fragment like "flash" or "deepseek" works without the full provider/id string. Max ${MAX_MODELS} models per call.`,
 		parameters: Type.Object({
 			prompt: Type.String({ description: "The prompt to send to every model" }),
 			models: Type.Array(Type.String(), {
@@ -166,8 +212,9 @@ export default function (pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params, signal) {
 			const { prompt, models, allowTools } = params as { prompt: string; models: string[]; allowTools?: boolean };
+			const resolvedModels = models.map(resolveModel);
 
-			const results = await mapWithConcurrencyLimit(models, CONCURRENCY, (model) =>
+			const results = await mapWithConcurrencyLimit(resolvedModels, CONCURRENCY, (model) =>
 				runOneModel(prompt, model, allowTools ?? false, signal),
 			);
 
@@ -191,7 +238,24 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("ab", {
-		description: "Compare a prompt across models: /ab model1,model2 <prompt>",
+		description: "Compare a prompt across models: /ab model1,model2[,...] <prompt>",
+		getArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+			if (knownModels.length === 0) return null;
+			// Only offer completions while typing the comma-separated model list,
+			// i.e. before the first space that starts the prompt text.
+			if (argumentPrefix.includes(" ")) return null;
+
+			const lastComma = argumentPrefix.lastIndexOf(",");
+			const before = argumentPrefix.slice(0, lastComma + 1);
+			const current = argumentPrefix.slice(lastComma + 1).toLowerCase();
+
+			const matches = knownModels
+				.filter((m) => m.toLowerCase().includes(current))
+				.slice(0, 20)
+				.map((m) => ({ value: `${before}${m}`, label: m }));
+
+			return matches.length > 0 ? matches : null;
+		},
 		handler: async (args, ctx) => {
 			const trimmed = args.trim();
 			const firstSpace = trimmed.indexOf(" ");
