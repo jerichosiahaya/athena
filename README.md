@@ -1,113 +1,125 @@
-<p align="center">
-  <a href="https://pi.dev">
-    <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
-  </a>
-</p>
-<p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square" /></a>
-</p>
+# Athena
 
-> New issues and PRs from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](CONTRIBUTING.md).
+A personal coding agent harness — an extensible CLI agent that reads, writes, and runs code in your terminal, with a tool system you can extend in TypeScript.
 
-# Pi Agent Harness
+Athena is tuned for AI engineering work and for Arch Linux, and is built to stay small: the tools it ships are the ones that earn their place.
 
-This is the home of the Pi agent harness project including our self extensible coding agent.
+## Install
 
-* **[@earendil-works/pi-coding-agent](packages/coding-agent)**: Interactive coding agent CLI
-* **[@earendil-works/pi-agent-core](packages/agent)**: Agent runtime with tool calling and state management
-* **[@earendil-works/pi-ai](packages/ai)**: Unified multi-provider LLM API (OpenAI, Anthropic, Google, …)
+Requires Node.js >= 22.19.0.
 
-To learn more about Pi:
+```bash
+git clone git@github.com:jerichosiahaya/athena.git
+cd athena
+npm install
+npm run build
+```
 
-* [Visit pi.dev](https://pi.dev), the project website with demos
-* [Read the documentation](https://pi.dev/docs/latest), but you can also ask the agent to explain itself
+Then expose the `athena` command:
 
-## All Packages
+```bash
+ln -sf "$PWD/packages/coding-agent/dist/cli.js" ~/.local/bin/athena
+```
+
+Make sure `~/.local/bin` is on your `PATH`.
+
+## Usage
+
+```bash
+athena                       # start an interactive session
+athena "explain this repo"   # start with a prompt
+athena -p "list all TODOs"   # non-interactive, print and exit
+athena -c                    # continue the previous session
+athena --help                # all flags
+```
+
+Inside a session: `/` for commands, `!` to run a shell command, `/exit` or `/quit` to leave, `Ctrl+P` to cycle models.
+
+Configuration and sessions live in `~/.athena/agent/`. Project-local resources go in `.athena/` — `skills/`, `prompts/`, `extensions/`, and `themes/` are all picked up automatically.
+
+## Custom tools
+
+Beyond the built-in `read`, `write`, `edit`, `bash`, `grep`, `find`, and `ls`:
+
+| Tool | What it does |
+|---|---|
+| **`model_catalog`** | Offline queries over the bundled catalog of ~1200 models across ~38 providers — filter by price, context window, reasoning, or vision, and sort by cost. |
+| **`pacman_query`** | Read-only Arch Linux package introspection: package details, repo search, which package owns a file, and explicitly-installed packages. |
+
+Both live in [`packages/coding-agent/examples/extensions/`](packages/coding-agent/examples/extensions). Load one for a single run with `-e`:
+
+```bash
+athena -e ./packages/coding-agent/examples/extensions/model-catalog.ts
+```
+
+Or install it permanently:
+
+```bash
+athena install ./packages/coding-agent/examples/extensions/model-catalog.ts
+```
+
+## Writing your own tool
+
+A tool is a `defineTool` call plus a registration hook. That's the whole contract:
+
+```ts
+import { Type } from "@earendil-works/pi-ai";
+import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+const greetTool = defineTool({
+	name: "greet",
+	label: "Greet",
+	description: "Say hello to someone",
+	parameters: Type.Object({
+		name: Type.String({ description: "Who to greet" }),
+	}),
+
+	async execute(_toolCallId, params) {
+		return {
+			content: [{ type: "text", text: `Hello, ${params.name}!` }],
+			details: { greeted: params.name },
+		};
+	},
+});
+
+export default function (pi: ExtensionAPI) {
+	pi.registerTool(greetTool);
+}
+```
+
+Errors are signalled by throwing, not by a flag on the result. Extensions can also register slash commands, add keybindings, hook session events, and override built-in tools — see the other files in [`examples/extensions/`](packages/coding-agent/examples/extensions).
+
+## Packages
 
 | Package | Description |
 |---------|-------------|
-| **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
+| [`packages/coding-agent`](packages/coding-agent) | The interactive CLI, tools, and extension system |
+| [`packages/agent`](packages/agent) | Agent runtime with tool calling and state management |
+| [`packages/ai`](packages/ai) | Unified multi-provider LLM API (OpenAI, Anthropic, Google, and more) |
+| [`packages/tui`](packages/tui) | Terminal UI library with differential rendering |
 
-For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
+## Permissions
 
-## Permissions & Containerization
+Athena has **no built-in permission system**. It runs with the full permissions of the user and process that launched it — it can read any file you can read and run any command you can run, without prompting.
 
-Pi does not include a built-in permission system for restricting filesystem, process, network, or credential access. By default, it runs with the permissions of the user and process that launched it.
-
-If you need stronger boundaries, containerize or sandbox Pi. See [packages/coding-agent/docs/containerization.md](packages/coding-agent/docs/containerization.md) for three patterns:
-
-- **Gondolin extension**: keep `pi` and provider auth on the host while routing built-in tools and `!` commands into a local Linux micro-VM.
-- **Plain Docker**: run the whole `pi` process in a local container for simple isolation.
-- **OpenShell**: run the whole `pi` process in a policy-controlled sandbox.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for project-specific rules (for both humans and agents).  Longer term plans for Pi can also be found in [RFCs](https://rfc.earendil.com/keyword/pi/).
+If you need real boundaries, sandbox it. See [containerization.md](packages/coding-agent/docs/containerization.md) for working patterns, including a micro-VM extension and plain Docker.
 
 ## Development
 
 ```bash
-npm install --ignore-scripts  # Install all dependencies without running lifecycle scripts
-npm run build         # Refresh model data, then build all packages
-npm run build:offline # Rebuild using existing model data without network access
-npm run check         # Lint, format, and type check
-./test.sh            # Run tests (skips LLM-dependent tests without API keys)
-./pi-test.sh         # Run pi from sources (can be run from any directory)
+npm install           # install dependencies
+npm run build         # refresh model data from provider APIs, then build
+npm run build:offline # rebuild from the existing model snapshot, no network
+npm run check         # lint, format, and type check
+./test.sh             # run tests (LLM-dependent tests skip without API keys)
 ```
 
-## Building standalone binaries from release source
+Pre-commit hooks run lint, formatting, type checks, and lockfile consistency checks. Dependency changes are treated as reviewed code changes: direct dependencies are pinned exactly, and `.npmrc` sets `min-release-age` to avoid same-day releases. Lockfile commits require `PI_ALLOW_LOCKFILE_CHANGE=1`.
 
-GitHub releases include a versioned source archive covered by the release's `SHA256SUMS` file. Extract it and run the same build script used for the official standalone binaries:
-
-```bash
-VERSION="<release-version>"
-tar -xzf "pi-${VERSION}-source.tar.gz"
-cd "pi-${VERSION}"
-./scripts/build-binaries.sh --offline-model-data --platform linux-x64 --out "$PWD/out"
-```
-
-The source archive includes the generated provider model data used for the release. `--offline-model-data` builds with that snapshot instead of refreshing it from live provider catalogs. The script still installs dependencies, builds the monorepo, compiles the Bun executable, and stages its runtime assets. Package maintainers who provide dependencies separately can pass `--skip-install --skip-deps`.
-
-## Supply-chain hardening
-
-We treat npm dependency changes as reviewed code changes.
-
-- Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
-- `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
-- `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
-- `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent shrinkwrap.
-- The published CLI package includes `packages/coding-agent/npm-shrinkwrap.json`, generated from the root lockfile, to pin transitive deps for npm users.
-- Release smoke tests use `npm run release:local` to build, pack, and create isolated npm and Bun installs outside the repo before tagging a release.
-- Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.
-- CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
-- Shrinkwrap generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
-
-## Share your OSS coding agent sessions
-
-If you use Pi or other coding agents for open source work, please share your sessions.
-
-Public OSS session data helps improve coding agents with real-world tasks, tool use, failures, and fixes instead of toy benchmarks.
-
-For the full explanation, see [this post on X](https://x.com/badlogicgames/status/2037811643774652911).
-
-To publish sessions, use [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf). Read its README.md for setup instructions. All you need is a Hugging Face account, the Hugging Face CLI, and `pi-share-hf`.
-
-You can also watch [this video](https://x.com/badlogicgames/status/2041151967695634619), where I show how I publish my `pi-mono` sessions.
-
-I regularly publish my own `pi-mono` work sessions here:
-
-- [badlogicgames/pi-mono on Hugging Face](https://huggingface.co/datasets/badlogicgames/pi-mono)
+`npm run build` hits provider APIs to regenerate the model catalog. Use `build:offline` for faster, network-free rebuilds.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
 
-<p align="center">
-  <a href="https://pi.dev">pi.dev</a> domain graciously donated by
-  <br /><br />
-  <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
-</p>
+Built on [Pi](https://github.com/earendil-works/pi) by Mario Zechner, also MIT licensed.
