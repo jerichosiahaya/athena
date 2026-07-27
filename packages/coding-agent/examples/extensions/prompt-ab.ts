@@ -189,4 +189,31 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 	});
+
+	pi.registerCommand("ab", {
+		description: "Compare a prompt across models: /ab model1,model2 <prompt>",
+		handler: async (args, ctx) => {
+			const trimmed = args.trim();
+			const firstSpace = trimmed.indexOf(" ");
+			const modelsPart = firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace);
+			const prompt = firstSpace === -1 ? "" : trimmed.slice(firstSpace + 1).trim();
+			const models = modelsPart
+				.split(",")
+				.map((m) => m.trim())
+				.filter(Boolean);
+
+			if (models.length < 2 || !prompt) {
+				ctx.ui.notify("Usage: /ab model1,model2[,model3...] <prompt>", "error");
+				return;
+			}
+			if (models.length > MAX_MODELS) {
+				ctx.ui.notify(`Too many models (${models.length}). Max is ${MAX_MODELS}.`, "error");
+				return;
+			}
+
+			pi.sendUserMessage(
+				`Use the prompt_ab tool with these exact models: ${JSON.stringify(models)} and this exact prompt: ${JSON.stringify(prompt)}`,
+			);
+		},
+	});
 }
