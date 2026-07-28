@@ -159,6 +159,94 @@ import {
 } from "./theme/theme.ts";
 import { InteractiveThemeController } from "./theme/theme-controller.ts";
 
+/**
+ * Composite a block-letter ASCII banner (drawn with '█') into a 3D drop-shadow look: the solid
+ * face keeps its color gradient, and a trailing shadow (rendered with '▓' '▒' '░') is offset
+ * down-and-right behind it, fading toward the background.
+ */
+function build3dShadowBanner(
+	lines: string[],
+	gradientStart: { r: number; g: number; b: number },
+	gradientEnd: { r: number; g: number; b: number },
+	lerp: (a: number, b: number, t: number) => number,
+): string {
+	const shadowChars = ["▓", "▒", "░"];
+	const shadowShades = [
+		{ r: 55, g: 65, b: 90 },
+		{ r: 35, g: 42, b: 60 },
+		{ r: 20, g: 24, b: 35 },
+	];
+	const depth = shadowChars.length;
+	const height = lines.length;
+	const width = Math.max(...lines.map((l) => l.length));
+	const totalRows = height + depth;
+	const totalCols = width + depth;
+
+	type Cell = { char: string; kind: "face"; row: number } | { char: string; kind: "shadow"; depth: number } | null;
+	const grid: Cell[][] = Array.from({ length: totalRows }, () => Array<Cell>(totalCols).fill(null));
+
+	// Paint farthest shadow layer first so nearer layers/face can draw over it.
+	for (let d = depth; d >= 1; d--) {
+		for (let r = 0; r < height; r++) {
+			for (let c = 0; c < width; c++) {
+				if (lines[r][c] === "█") {
+					grid[r + d][c + d] = { char: shadowChars[d - 1], kind: "shadow", depth: d };
+				}
+			}
+		}
+	}
+	// Face on top.
+	for (let r = 0; r < height; r++) {
+		for (let c = 0; c < width; c++) {
+			if (lines[r][c] === "█") {
+				grid[r][c] = { char: "█", kind: "face", row: r };
+			}
+		}
+	}
+
+	const outputLines: string[] = [];
+	for (let r = 0; r < totalRows; r++) {
+		let line = "";
+		let runColor: string | null = null;
+		let runText = "";
+		const flush = () => {
+			if (runText.length === 0) return;
+			line += runColor ? chalk.bold.rgb(...(JSON.parse(runColor) as [number, number, number]))(runText) : runText;
+			runText = "";
+		};
+		for (let c = 0; c < totalCols; c++) {
+			const cell = grid[r][c];
+			if (!cell) {
+				if (runColor !== null) flush();
+				runColor = null;
+				runText += " ";
+				continue;
+			}
+			let color: [number, number, number];
+			if (cell.kind === "face") {
+				const t = height === 1 ? 0 : cell.row / (height - 1);
+				color = [
+					lerp(gradientStart.r, gradientEnd.r, t),
+					lerp(gradientStart.g, gradientEnd.g, t),
+					lerp(gradientStart.b, gradientEnd.b, t),
+				];
+			} else {
+				const shade = shadowShades[cell.depth - 1];
+				color = [shade.r, shade.g, shade.b];
+			}
+			const key = JSON.stringify(color);
+			if (key !== runColor) {
+				flush();
+				runColor = key;
+			}
+			runText += cell.char;
+		}
+		flush();
+		outputLines.push(line);
+	}
+	return outputLines.join("\n");
+}
+
 /** Interface for components that can be expanded/collapsed */
 interface Expandable {
 	setExpanded(expanded: boolean): void;
@@ -737,19 +825,11 @@ export class InteractiveMode {
 				"█   █   █   █   █ █     █  ██ █   █",
 				"█   █   █   █   █ █████ █   █ █   █",
 			];
-			// Blue gradient: pale sky blue (top) -> deep indigo blue (bottom)
+			// Blue gradient: pale sky blue (top) -> deep indigo blue (bottom), applied to the block face
 			const gradientStart = { r: 96, g: 165, b: 250 }; // #60A5FA
 			const gradientEnd = { r: 29, g: 78, b: 216 }; // #1D4ED8
 			const lerp = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
-			const asciiBanner = bannerLines
-				.map((line, i) => {
-					const t = bannerLines.length === 1 ? 0 : i / (bannerLines.length - 1);
-					const r = lerp(gradientStart.r, gradientEnd.r, t);
-					const g = lerp(gradientStart.g, gradientEnd.g, t);
-					const b = lerp(gradientStart.b, gradientEnd.b, t);
-					return chalk.bold.rgb(r, g, b)(line);
-				})
-				.join("\n");
+			const asciiBanner = build3dShadowBanner(bannerLines, gradientStart, gradientEnd, lerp);
 			const logo = `${asciiBanner}\n${theme.fg("dim", `v${this.version}`)}`;
 
 			// Build startup instructions using keybinding hint helpers

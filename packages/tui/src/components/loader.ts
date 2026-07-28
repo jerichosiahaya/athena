@@ -8,8 +8,8 @@ export interface LoaderIndicatorOptions {
 	intervalMs?: number;
 }
 
-const DEFAULT_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const DEFAULT_INTERVAL_MS = 80;
+const DEFAULT_FRAMES = ["░", "▒", "▓", "█", "▓", "▒", "░"];
+const DEFAULT_INTERVAL_MS = 100;
 
 /**
  * Loader component that updates with an optional spinning animation.
