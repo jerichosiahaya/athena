@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	createAgentSession,
 	DefaultResourceLoader,
+	getAgentDir,
 	ModelRuntime,
 	SessionManager,
 	SettingsManager,
@@ -47,7 +49,78 @@ async function runPiEval(input: string, signal: AbortSignal | undefined): Promis
 	signal?.throwIfAborted();
 	const selection = getRequiredModelSelection();
 	const modelRuntime = await ModelRuntime.create();
+
+	// Load litellm provider from models-store if available (local proxy)
+	try {
+		const storePath = join(getAgentDir(), "models-store.json");
+		const storeContent = readFileSync(storePath, "utf-8");
+		const store = JSON.parse(storeContent) as Record<
+			string,
+			{
+				models?: Array<{
+					id: string;
+					name: string;
+					reasoning?: boolean;
+					thinkingLevelMap?: Record<string, string | null>;
+					input: ("text" | "image")[];
+					cost: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+					contextWindow: number;
+					maxTokens: number;
+					compat?: Record<string, unknown>;
+					provider?: string;
+					api?: string;
+					baseUrl?: string;
+				}>;
+				baseUrl?: string;
+				apiKeyFingerprint?: string;
+			}
+		>;
+		const litellmEntry = store.litellm;
+		if (litellmEntry) {
+			// Register litellm as an openai-compatible provider pointing at the proxy
+			const authPath = join(getAgentDir(), "auth.json");
+			const authContent = readFileSync(authPath, "utf-8");
+			const authStore = JSON.parse(authContent) as Record<string, { baseUrl?: string; access?: string }>;
+			const litellmAuth = authStore.litellm;
+			if (litellmAuth?.baseUrl && litellmEntry.models) {
+				// Build model definitions from store, with api+baseUrl from the proxy config
+				const proxyBaseUrl = litellmAuth.baseUrl;
+				const models = litellmEntry.models.map((m) => ({
+					id: m.id,
+					name: m.name,
+					api: (m.api || "openai-chat") as "openai-chat" | "openai-responses",
+					baseUrl: proxyBaseUrl,
+					reasoning: m.reasoning ?? false,
+					thinkingLevelMap: m.thinkingLevelMap as Record<string, string | null> | undefined,
+					input: (m.input ?? ["text"]) as ("text" | "image")[],
+					cost: {
+						input: m.cost?.input ?? 0,
+						output: m.cost?.output ?? 0,
+						cacheRead: m.cost?.cacheRead ?? 0,
+						cacheWrite: m.cost?.cacheWrite ?? 0,
+					},
+					contextWindow: m.contextWindow ?? 128000,
+					maxTokens: m.maxTokens ?? 16384,
+					compat: m.compat as
+						| { supportsStore?: boolean; supportsDeveloperRole?: boolean; supportsReasoningEffort?: boolean }
+						| undefined,
+				}));
+				modelRuntime.registerProvider("litellm", {
+					baseUrl: proxyBaseUrl,
+					apiKey: litellmAuth.access,
+					models,
+				});
+				// Set the API key in the runtime so auth works
+				await modelRuntime.setRuntimeApiKey("litellm", litellmAuth.access!);
+			}
+		}
+	} catch {
+		// models-store not available, use defaults
+	}
+
+	await modelRuntime.refresh({ allowNetwork: false });
 	signal?.throwIfAborted();
+
 	const model = modelRuntime.getModel(selection.provider, selection.model);
 	if (!model) {
 		throw new Error(`Eval model not found: ${selection.provider}/${selection.model}`);

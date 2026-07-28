@@ -1,52 +1,34 @@
 #!/bin/bash
 set -euo pipefail
 
-# Fast syntax check
-npx -y tsx --eval "import ts from 'typescript'; console.log('ok')" 2>/dev/null || {
+# Respect env vars, with defaults for eval model
+PROVIDER="${PI_PROVIDER:-litellm}"
+MODEL="${PI_MODEL:-azure_ai/gpt-5.4-mini}"
+
+cd /home/jerichosiahaya/code/pi
+
+# Pre-checks: verify TS compiles
+npx tsx --eval "import ts from 'typescript'; console.log('ok')" 2>/dev/null || {
 	echo "TypeScript check failed"
 	exit 1
 }
 
-# Run the eval suite — use a specific model for consistency
-# The eval runner picks up PI_PROVIDER and PI_MODEL from environment
-# Default to openai-codex/gpt-5.4 if not set, else use whatever's configured
-PROVIDER="${PI_PROVIDER:-openai-codex}"
-MODEL="${PI_MODEL:-gpt-5.4}"
+# Run the eval suite with NO_COLOR to strip ANSI codes
+OUTPUT=$(NO_COLOR=1 npm run eval -- --provider "$PROVIDER" --model "$MODEL" 2>&1) || true
 
-cd /home/jerichosiahaya/code/pi
+# Parse vitest summary line: "Tests  15 passed (15)"
+PASS=$(echo "$OUTPUT" | grep -oP 'Tests\s+\K\d+(?=\s+passed)' | tail -1 || echo "0")
+FAIL=$(echo "$OUTPUT" | grep -oP '\K\d+(?=\s+failed)' | tail -1 || echo "0")
 
-# Run vitest evals and capture output
-OUTPUT=$(npm run eval -- --provider "$PROVIDER" --model "$MODEL" 2>&1) || true
-
-# Extract pass/fail counts from vitest output
-PASS=$(echo "$OUTPUT" | grep -oP 'Tests\s+\d+ passed' | grep -oP '\d+' || echo "0")
-FAIL=$(echo "$OUTPUT" | grep -oP '\d+ failed' | grep -oP '\d+' || echo "0")
 TOTAL=$((PASS + FAIL))
-
-if [ "$TOTAL" -eq 0 ]; then
-	# Try alternate output format
-	PASS=$(echo "$OUTPUT" | grep -oP '(?<=✓|✔|passed)\s+\d+' | grep -oP '\d+' || echo "0")
-	FAIL=$(echo "$OUTPUT" | grep -oP '(?<=✗|✘|failed)\s+\d+' | grep -oP '\d+' || echo "0")
-	TOTAL=$((PASS + FAIL))
-fi
-
-if [ "$TOTAL" -eq 0 ]; then
-	echo "WARNING: Could not parse test results, falling back to exit-code check"
-	# Fallback: check if output contains "Tests" line
-	SUM_LINE=$(echo "$OUTPUT" | grep -i "Tests " | tail -1 || true)
-	echo "Summary: $SUM_LINE"
-	# If the command succeeded and didn't error, assume 1 test passed
-	PASS=1
-	TOTAL=1
-fi
 
 PASS_RATE=0
 if [ "$TOTAL" -gt 0 ]; then
 	PASS_RATE=$((PASS * 100 / TOTAL))
 fi
 
-# Extract token usage from output
-TOTAL_TOKENS=$(echo "$OUTPUT" | grep -oP 'totalTokens["\s:=]+\d+' | grep -oP '\d+' | tail -1 || echo "0")
+# Extract total token usage: sum all "[NNN tok]" entries
+TOTAL_TOKENS=$(echo "$OUTPUT" | grep -oP '\d+(?=\s*tok\])' | perl -ne 'chomp; $sum += $_; END { print $sum }' || echo "0")
 
 echo "METRIC pass_rate=$PASS_RATE"
 echo "METRIC total_tokens=$TOTAL_TOKENS"
