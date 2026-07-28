@@ -16,12 +16,21 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
-import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { AutocompleteItem } from "@earendil-works/pi-tui";
+import { type ExtensionAPI, getAgentDir, type Theme } from "@earendil-works/pi-coding-agent";
+import {
+	type AutocompleteItem,
+	type Component,
+	truncateToWidth,
+	visibleWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 
 const MAX_MODELS = 6;
 const CONCURRENCY = 4;
 const OUTPUT_CAP = 20 * 1024;
+const MIN_COLUMN_WIDTH = 16;
+const COLLAPSED_BODY_LINES = 12;
+const COLUMN_GAP = " │ ";
 
 interface RunResult {
 	model: string;
@@ -30,6 +39,62 @@ interface RunResult {
 	stderr: string;
 	usage: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
 	latencyMs: number;
+}
+
+function padColumn(str: string, width: number): string {
+	const gap = width - visibleWidth(str);
+	return gap > 0 ? str + " ".repeat(gap) : str;
+}
+
+function statsLine(r: RunResult): string {
+	const status = r.exitCode === 0 ? "ok" : "failed";
+	const cost = `$${r.usage.cost.toFixed(5)}`;
+	const tokens = `in:${r.usage.input} out:${r.usage.output}`;
+	return `${status} · ${(r.latencyMs / 1000).toFixed(1)}s · ${cost} · ${tokens}`;
+}
+
+/**
+ * Lay out each model's output in its own column, side by side, so differences are visible at a
+ * glance without scrolling past one full response to reach the next. Columns share the viewport
+ * width evenly; each model's header, stats, and body are word-wrapped to its column width and
+ * padded to line up with the others, separated by a vertical divider.
+ */
+function buildColumnsComponent(results: RunResult[], theme: Theme, expanded: boolean): Component {
+	return {
+		render(width: number): string[] {
+			const count = results.length;
+			const gapWidth = visibleWidth(COLUMN_GAP);
+			const columnWidth = Math.max(MIN_COLUMN_WIDTH, Math.floor((width - gapWidth * (count - 1)) / count));
+
+			const columns = results.map((r) => {
+				const icon = r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
+				const header = `${icon} ${truncateToWidth(theme.bold(theme.fg("toolTitle", r.model)), columnWidth - 2)}`;
+				// Stats and body both wrap to the column width (not just truncate), so narrow
+				// columns don't silently cut off cost/timing info or push the divider out of
+				// alignment with the header/other columns.
+				const statsLines = wrapTextWithAnsi(theme.fg("dim", statsLine(r)), columnWidth);
+				const bodyText = r.exitCode === 0 ? r.text || "(no output)" : r.stderr || "(no output, process failed)";
+				let bodyLines = wrapTextWithAnsi(bodyText.trim(), columnWidth);
+				if (!expanded && bodyLines.length > COLLAPSED_BODY_LINES) {
+					bodyLines = [...bodyLines.slice(0, COLLAPSED_BODY_LINES), theme.fg("muted", "(Ctrl+O to expand)")];
+				}
+				const contentLines = [...statsLines, "", ...bodyLines];
+				return { header, contentLines, width: columnWidth };
+			});
+
+			const rowCount = Math.max(...columns.map((c) => 1 + c.contentLines.length)); // header + rest
+			const lines: string[] = [];
+			for (let row = 0; row < rowCount; row++) {
+				const cells = columns.map((c) => {
+					const content = row === 0 ? c.header : (c.contentLines[row - 1] ?? "");
+					return padColumn(content, c.width);
+				});
+				lines.push(cells.join(theme.fg("muted", COLUMN_GAP)));
+			}
+			return lines;
+		},
+		invalidate() {},
+	};
 }
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
@@ -219,12 +284,8 @@ export default function (pi: ExtensionAPI) {
 			);
 
 			const sections = results.map((r) => {
-				const status = r.exitCode === 0 ? "ok" : "failed";
-				const cost = `$${r.usage.cost.toFixed(5)}`;
-				const tokens = `in:${r.usage.input} out:${r.usage.output}`;
-				const stats = `${status} · ${(r.latencyMs / 1000).toFixed(1)}s · ${cost} · ${tokens}`;
 				const body = r.exitCode === 0 ? r.text || "(no output)" : r.stderr || "(no output, process failed)";
-				return `### ${r.model}\n${stats}\n\n${body}`;
+				return `### ${r.model}\n${statsLine(r)}\n\n${body}`;
 			});
 
 			const totalCost = results.reduce((sum, r) => sum + r.usage.cost, 0);
@@ -234,6 +295,15 @@ export default function (pi: ExtensionAPI) {
 				content: [{ type: "text", text: `${summary}\n\n${sections.join("\n\n---\n\n")}` }],
 				details: { results },
 			};
+		},
+
+		renderResult(result, { expanded }, theme) {
+			const details = result.details as { results: RunResult[] } | undefined;
+			if (!details || details.results.length === 0) {
+				const text = result.content[0];
+				return { render: () => [text?.type === "text" ? text.text : "(no output)"], invalidate: () => {} };
+			}
+			return buildColumnsComponent(details.results, theme, expanded);
 		},
 	});
 
