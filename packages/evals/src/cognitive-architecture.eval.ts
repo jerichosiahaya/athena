@@ -102,8 +102,87 @@ describeEval("reasoning", { harness: piCodingAgentHarness }, (it) => {
 });
 
 // ============================================================================
-// Conciseness — tests ability to be brief
+// Hard Reasoning — more complex multi-step reasoning and constraint handling
 // ============================================================================
+describeEval("hard reasoning", { harness: piCodingAgentHarness }, (it) => {
+	it("solves a river crossing puzzle", async ({ run }) => {
+		const result = await run(
+			"A farmer needs to cross a river with a wolf, a goat, and a cabbage. " +
+				"His boat can only carry him and one item at a time. " +
+				"If left alone, the wolf eats the goat, and the goat eats the cabbage. " +
+				"What is the first item he should take across? Answer only one word: wolf, goat, or cabbage.",
+		);
+		expect(result.output.trim().toLowerCase()).toBe("goat");
+		expect(result.errors).toEqual([]);
+	});
+
+	it("avoids common reasoning fallacy", async ({ run }) => {
+		const result = await run(
+			"A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. " +
+				"How much does the ball cost? Think step by step, then output only the number in cents (e.g., 10 for 10 cents).",
+		);
+		expect(result.output.trim()).toBe("5");
+		expect(result.errors).toEqual([]);
+	});
+
+	it("counts letter frequencies", async ({ run }) => {
+		const result = await run(
+			"How many times does the letter 'r' appear in the word 'strawberry'? Output only the number.",
+		);
+		expect(result.output.trim()).toBe("3");
+		expect(result.errors).toEqual([]);
+	});
+
+	it("plans a trip with constraints", async ({ run }) => {
+		const result = await run(
+			"You have a 2-hour layover at an airport. Security takes 15 min, walking to gate takes 10 min, " +
+				"and boarding starts 30 min before departure. Can you eat at a restaurant that takes 45 min? " +
+				"Answer only 'yes' or 'no'.",
+		);
+		expect(result.output.trim().toLowerCase()).toBe("yes");
+		expect(result.errors).toEqual([]);
+	});
+
+	it("solves a multi-constraint logic puzzle", async ({ run }) => {
+		const result = await run(
+			"There are three boxes: one contains only apples, one contains only oranges, and one contains both apples and oranges. " +
+				"All boxes are mislabeled. You pick ONE fruit from the box labeled 'apples' and it is an orange. " +
+				"What is in the box labeled 'both'? It can only be 'apples', 'oranges', or 'both'. " +
+				"Think it through step by step, then output your final answer as one word.",
+		);
+		expect(result.output.trim().toLowerCase()).toMatch(/^oranges/);
+		expect(result.errors).toEqual([]);
+	});
+
+	it("avoids recency bias", async ({ run }) => {
+		const result = await run(
+			"List the numbers 1 through 10 in reverse order. Output as a comma-separated list, no spaces.",
+		);
+		const output = result.output.trim();
+		const parts = output.split(",");
+		expect(parts.length).toBe(10);
+		expect(parts[0]).toBe("10");
+		expect(parts[9]).toBe("1");
+		expect(result.errors).toEqual([]);
+	});
+
+	it("counts words correctly", async ({ run }) => {
+		const result = await run(
+			"How many words are in the sentence 'The quick brown fox jumps over the lazy dog'? Output only the number.",
+		);
+		expect(result.output.trim()).toBe("9");
+		expect(result.errors).toEqual([]);
+	});
+
+	it("distinguishes correlation from causation", async ({ run }) => {
+		const result = await run(
+			"Studies show that people who drink coffee live longer. Does this prove that coffee causes longer life? " +
+				"Answer only 'yes', 'no', or 'cannot determine'.",
+		);
+		expect(result.output.trim().toLowerCase()).toBe("cannot determine");
+		expect(result.errors).toEqual([]);
+	});
+});
 describeEval("conciseness", { harness: piCodingAgentHarness }, (it) => {
 	it("responds very concisely", async ({ run }) => {
 		const result = await run("What is the speed of light in m/s? Respond in under 25 characters using only numbers.");

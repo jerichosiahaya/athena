@@ -115,6 +115,9 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	// Always include these
 	addGuideline("Be concise in your responses");
 	addGuideline("Show file paths clearly when working with files");
+	addGuideline("For complex tasks, plan before acting — read relevant files first, then make targeted edits");
+	addGuideline("When a tool call fails, read the error carefully and retry with corrected arguments");
+	addGuideline("Prefer multiple small, focused edits over one large change");
 
 	const guidelines = guidelinesList.map((g) => `- ${g}`).join("\n");
 
@@ -127,6 +130,12 @@ In addition to the tools above, you may have access to other custom tools depend
 
 Guidelines:
 ${guidelines}
+
+## Reasoning Approach
+- Before making changes, understand the codebase structure and relevant files
+- When debugging, form a hypothesis, test it with targeted commands, then act on the evidence
+- If you're unsure about file contents, read them instead of guessing
+- For multi-step tasks, keep track of what you've done and what remains
 
 ${APP_NAME} documentation (read only when the user asks about ${APP_NAME} itself, its SDK, extensions, themes, skills, or TUI):
 - Main documentation: ${readmePath}

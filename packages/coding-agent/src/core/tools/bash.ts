@@ -325,10 +325,13 @@ export function createBashToolDefinition(
 		name: "bash",
 		label: "bash",
 		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`,
-		promptSnippet: "Execute bash commands (ls, grep, find, etc.)",
-		promptGuidelines: exposeSessionEnvironment
-			? ["Inspect PI_* environment variables for current model and session details."]
-			: undefined,
+		promptSnippet: "Execute bash commands (ls, grep, find, etc.; set timeout for long-running)",
+		promptGuidelines: [
+			...(exposeSessionEnvironment
+				? ["Inspect PI_* environment variables for current model and session details."]
+				: []),
+			"Use ls/find/grep to explore before editing; avoid guessing file contents",
+		],
 		parameters: bashSchema,
 		async execute(
 			_toolCallId,

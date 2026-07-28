@@ -19,12 +19,22 @@ if OUTPUT=$(NO_COLOR=1 npm run eval -- --provider "$PROVIDER" --model "$MODEL" 2
 	:
 fi
 
-# Parse vitest summary line: "Tests  15 passed (15)" or "Tests  1 failed | 14 passed (15)"
-PASS=$(echo "$OUTPUT" | grep -oP 'Tests\s+\K\d+(?=\s+passed)' | tail -1) || true
-FAIL=$(echo "$OUTPUT" | grep -oP '\K\d+(?=\s+failed)' | tail -1) || true
+# Parse test results from the summary line: "Tests  15 passed (15)"
+PASS=""
+FAIL=""
+while IFS= read -r line; do
+	case "$line" in
+		*Tests*passed*)
+			# Extract the number before "passed"
+			PASS=$(echo "$line" | grep -oP '\d+(?=\s+passed)' | tail -1)
+			# Extract the number before "failed" (if any)
+			FAIL=$(echo "$line" | grep -oP '\d+(?=\s+failed)' | tail -1)
+			;;
+	esac
+done <<< "$OUTPUT"
 
-if [ -z "$PASS" ]; then PASS=0; fi
-if [ -z "$FAIL" ]; then FAIL=0; fi
+PASS="${PASS:-0}"
+FAIL="${FAIL:-0}"
 
 TOTAL=$((PASS + FAIL))
 
@@ -34,10 +44,9 @@ if [ "$TOTAL" -gt 0 ]; then
 fi
 
 # Extract total token usage: sum all "[NNN tok]" entries
-TOKENS=$(echo "$OUTPUT" | grep -oP '\d+(?=\s*tok\])' || true)
 TOTAL_TOKENS=0
-for t in $TOKENS; do
-	TOTAL_TOKENS=$((TOTAL_TOKENS + t))
+for tok in $(echo "$OUTPUT" | grep -oP '\d+(?=\s*tok\])' || true); do
+	TOTAL_TOKENS=$((TOTAL_TOKENS + tok))
 done
 
 echo "METRIC pass_rate=$PASS_RATE"

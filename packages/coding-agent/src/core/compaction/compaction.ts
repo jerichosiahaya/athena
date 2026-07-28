@@ -491,11 +491,29 @@ Use this EXACT format:
 ## Next Steps
 1. [Ordered list of what should happen next]
 
+## Files
+### Created/Modified
+- [Any files that were created or modified]
+
+### Read/Referenced
+- [Key files that were read or referenced for context]
+
 ## Critical Context
 - [Any data, examples, or references needed to continue]
+- [Key function signatures, data structures, or patterns discovered]
 - [Or "(none)" if not applicable]
 
-Keep each section concise. Preserve exact file paths, function names, and error messages.`;
+Keep each section concise. Preserve exact file paths, function names, error messages, and type definitionsted or modified]
+
+### Read/Referenced
+- [Key files that were read or referenced for context]
+
+## Critical Context
+- [Any data, examples, or references needed to continue]
+- [Key function signatures, data structures, or patterns discovered]
+- [Or "(none)" if not applicable]
+
+Keep each section concise. Preserve exact file paths, function names, error messages, and type definitions.`;
 
 const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
 
@@ -504,7 +522,7 @@ Update the existing structured summary with new information. RULES:
 - ADD new progress, decisions, and context from the new messages
 - UPDATE the Progress section: move items from "In Progress" to "Done" when completed
 - UPDATE "Next Steps" based on what was accomplished
-- PRESERVE exact file paths, function names, and error messages
+- PRESERVE exact file paths, function names, error messages, and type definitions
 - If something is no longer relevant, you may remove it
 
 Use this EXACT format:
@@ -531,10 +549,18 @@ Use this EXACT format:
 ## Next Steps
 1. [Update based on current state]
 
+## Files
+### Created/Modified
+- [Any files created or modified in new messages]
+
+### Read/Referenced
+- [Key files read or referenced]
+
 ## Critical Context
 - [Preserve important context, add new if needed]
+- [Key function signatures, data structures, or patterns discovered]
 
-Keep each section concise. Preserve exact file paths, function names, and error messages.`;
+Keep each section concise. Preserve exact file paths, function names, error messages, and type definitions.`;
 
 function createSummarizationOptions(
 	model: Model<any>,
@@ -801,6 +827,9 @@ Summarize the prefix to provide context for the retained suffix:
 
 ## Early Progress
 - [Key decisions and work done in the prefix]
+
+## Files Touched
+- [Any files read, created, or modified in the prefix]
 
 ## Context for Suffix
 - [Information needed to understand the retained recent work]

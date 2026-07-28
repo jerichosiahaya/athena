@@ -35,4 +35,31 @@ This runs the eval suite and outputs `METRIC pass_rate=XX total_tokens=YYYY`.
 - Keep it simple — no complex new abstractions
 
 ## What's Been Tried
-(Baseline to be established)
+
+### Experiment 1: Baseline
+- Initial measurement: 15/15 pass (100%), 6322 tokens
+- System prompt as-is, basic tool descriptions
+
+### Experiment 2: System Prompt Reasoning Guidance
+- Added guidelines: "plan before acting", "retry with corrected arguments", "prefer small focused edits"
+- Added ## Reasoning Approach section with planning, debugging, and task-tracking guidance
+- Result: 15/15 pass (100%), 8079 tokens (+28% from larger system prompt)
+- No regression in test quality
+
+### Experiment 3: Better Tool Descriptions
+- Read: added "use offset/limit for large files"
+- Bash: added "set timeout for long-running; explore before guessing"
+- Edit: added "read first, then edit"
+- Write: added "use edit for partial changes"
+- Result: 15/15 pass, 8072 tokens
+
+### Experiment 4: Harder Test Suite
+- Added 8 hard reasoning tests (river crossing, bat-ball, letter frequency, planning, logic puzzle, reverse order, word count, causation)
+- Result: 22/23 pass (95%), 12499 tokens
+- More room for improvement with harder tests
+
+### Experiment 5: Better Compaction Summaries
+- Added Files section to compaction summary format
+- Added type definition preservation to summarization prompts
+- Added file-tracking to turn prefix summaries
+- Result: 22/23 pass (95%), 12518 tokens
